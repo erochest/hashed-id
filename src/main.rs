@@ -15,7 +15,7 @@ fn main() -> Result<()> {
     debug!("Generating rainbow table with pepper value = '{}'", args.pepper);
 
     let numbers = 0..;
-    let max_id = 10u64.pow(10);
+    let max_id = 10u64.pow(args.digits);
     numbers
         .take_while(|n| *n < max_id)
         .map(|n| hash_id(n, &args.pepper))
@@ -26,6 +26,10 @@ fn main() -> Result<()> {
 
 #[derive(Debug, StructOpt)]
 struct Cli {
+    /// Number of digits.
+    #[structopt(name = "DIGITS", short = "n", long = "digits", default_value = "10")]
+    digits: u32,
+
     /// Value to use for the pepper.
     #[structopt(name = "PEPPER")]
     pepper: String,
