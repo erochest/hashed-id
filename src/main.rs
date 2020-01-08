@@ -1,6 +1,7 @@
 use env_logger;
 use log::debug;
 use structopt::StructOpt;
+use rayon::prelude::*;
 use ring::digest::{Context, Digest, SHA256};
 use data_encoding::HEXUPPER;
 
@@ -15,8 +16,19 @@ fn main() -> Result<()> {
     debug!("Generating rainbow table with pepper value = '{}'", args.pepper);
 
     let max_id = 10u64.pow(args.digits);
-    (0..max_id)
-        .map(|n| hash_id(n, &args.pepper))
+    let data = (0..max_id)
+        .map(|n| (n, format!("{:10}+{}", n, &args.pepper)))
+        .collect::<Vec<_>>();
+
+    data
+        .par_iter()
+        .map(|(n, input)| {
+            let mut context = Context::new(&SHA256);
+            context.update(input.as_bytes());
+            let digest = context.finish();
+            let hash = HEXUPPER.encode(digest.as_ref());
+            (n, hash)
+        })
         .for_each(|(n, hash)| println!("{}\t{}", n, hash));
 
     Ok(())
