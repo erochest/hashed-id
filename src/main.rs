@@ -1,7 +1,6 @@
 use env_logger;
 use log::debug;
 use structopt::StructOpt;
-use rayon::prelude::*;
 use ring::digest::{Context, Digest, SHA256};
 use data_encoding::HEXUPPER;
 
@@ -17,7 +16,6 @@ fn main() -> Result<()> {
 
     let max_id = 10u64.pow(args.digits);
     (0..max_id)
-        .into_par_iter()
         .map(|n| hash_id(n, &args.pepper))
         .for_each(|(n, hash)| println!("{}\t{}", n, hash));
 
