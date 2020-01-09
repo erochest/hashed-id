@@ -1,12 +1,12 @@
+use data_encoding::HEXUPPER;
 use env_logger;
 use log::debug;
-use std::char;
-use std::ops::Range;
-use std::fmt::Write;
-use structopt::StructOpt;
 use rayon::prelude::*;
 use ring::digest::{Context, SHA256};
-use data_encoding::HEXUPPER;
+use std::char;
+use std::fmt::Write;
+use std::ops::Range;
+use structopt::StructOpt;
 
 mod error;
 
@@ -21,8 +21,15 @@ fn main() -> Result<()> {
     let thread_count = rayon::current_num_threads() as u64;
     let mut chunks = partition_chunks(max_id, thread_count);
 
-    debug!("Generating rainbow table with pepper value = '{}'", args.pepper);
-    debug!("Using {} chunks of size {}", chunks.len(), chunks.get(0).map(|r| r.end - r.start).unwrap_or_default());
+    debug!(
+        "Generating rainbow table with pepper value = '{}'",
+        args.pepper
+    );
+    debug!(
+        "Using {} chunks of size {}",
+        chunks.len(),
+        chunks.get(0).map(|r| r.end - r.start).unwrap_or_default()
+    );
 
     chunks
         .par_iter_mut()
@@ -35,7 +42,9 @@ fn main() -> Result<()> {
 
                 buffer.clear();
                 for i in 0..11 {
-                    buffer.push(char::from_digit((id / 10u64.pow(i) % 10) as u32, 10).unwrap_or_default());
+                    buffer.push(
+                        char::from_digit((id / 10u64.pow(i) % 10) as u32, 10).unwrap_or_default(),
+                    );
                 }
 
                 context.update(buffer.as_bytes());
@@ -76,11 +85,11 @@ fn partition_chunks(max_value: u64, chunk_count: u64) -> Vec<Range<u64>> {
     let remainder = max_value % chunk_count;
 
     for i in 0..chunk_count {
-        chunks.push((i * chunk_size) .. ((i + 1) * chunk_size));
+        chunks.push((i * chunk_size)..((i + 1) * chunk_size));
     }
 
     if remainder != 0 {
-        chunks.push((chunk_count * chunk_size) .. max_value);
+        chunks.push((chunk_count * chunk_size)..max_value);
     }
 
     chunks
