@@ -3,7 +3,6 @@ use env_logger;
 use log::debug;
 use rayon::prelude::*;
 use ring::digest::{Context, SHA256};
-use std::char;
 use std::fmt::Write;
 use std::ops::Range;
 use structopt::StructOpt;
@@ -41,11 +40,7 @@ fn main() -> Result<()> {
                 let mut context = Context::new(&SHA256);
 
                 buffer.clear();
-                for i in 0..11 {
-                    buffer.push(
-                        char::from_digit((id / 10u64.pow(i) % 10) as u32, 10).unwrap_or_default(),
-                    );
-                }
+                write!(&mut buffer, "{:10}", id).unwrap();
 
                 context.update(buffer.as_bytes());
                 context.update(b"+");
