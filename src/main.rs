@@ -1,13 +1,11 @@
-use data_encoding::HEXUPPER;
 use env_logger;
 use log::debug;
 use rayon::prelude::*;
-use ring::digest::{Context, SHA256};
-use std::fmt::Write;
 use std::ops::Range;
 use structopt::StructOpt;
 
 mod error;
+mod hash;
 
 use error::Result;
 
@@ -17,46 +15,35 @@ fn main() -> Result<()> {
 
     let pepper = args.pepper.as_bytes();
     let max_id = 10u64.pow(args.digits);
-    let thread_count = rayon::current_num_threads() as u64;
-    let mut chunks = partition_chunks(max_id, thread_count);
 
     debug!(
         "Generating rainbow table with pepper value = '{}'",
         args.pepper
     );
-    debug!(
-        "Using {} chunks of size {}",
-        chunks.len(),
-        chunks.get(0).map(|r| r.end - r.start).unwrap_or_default()
-    );
 
-    chunks
-        .par_iter_mut()
-        .map(|chunk| {
-            let mut buffer = String::with_capacity(10);
-            let mut output = String::new();
+    if args.serial {
+        for (id, hash) in hash::Hasher::new(pepper, 0..max_id) {
+            println!("{}\t{}", id, hash);
+        }
 
-            for id in chunk {
-                let mut context = Context::new(&SHA256);
+    } else {
+        let thread_count = rayon::current_num_threads() as u64;
+        let chunks = partition_chunks(max_id, thread_count);
 
-                buffer.clear();
-                write!(&mut buffer, "{:10}", id).unwrap();
+        debug!(
+            "Using {} chunks of size {}",
+            chunks.len(),
+            chunks.get(0).map(|r| r.end - r.start).unwrap_or_default()
+        );
 
-                context.update(buffer.as_bytes());
-                context.update(b"+");
-                context.update(&pepper);
-
-                let digest = context.finish();
-                let hash = HEXUPPER.encode(digest.as_ref());
-
-                // TODO: Don't actually care about order, just that they don't get mixed together.
-                // Maybe create a separate thread with a channel for handling output.
-                writeln!(&mut output, "{}\t{}", id, hash).unwrap();
-            }
-
-            output
-        })
-        .for_each(|output| print!("{}", output));
+        chunks
+            .into_par_iter()
+            .flat_map(|chunk| {
+                let hasher = hash::Hasher::new(pepper, chunk);
+                hasher.par_bridge()
+            })
+        .for_each(|(id, hash)| println!("{}\t{}", id, hash));
+    }
 
     Ok(())
 }
@@ -66,6 +53,10 @@ struct Cli {
     /// Number of digits.
     #[structopt(name = "DIGITS", short = "n", long = "digits", default_value = "10")]
     digits: u32,
+
+    /// Run serially?
+    #[structopt(short = "s", long = "serial")]
+    serial: bool,
 
     /// Value to use for the pepper.
     #[structopt(name = "PEPPER")]
