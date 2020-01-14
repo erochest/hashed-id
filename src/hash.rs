@@ -8,9 +8,9 @@ pub struct Hasher {
 }
 
 impl Hasher {
-    pub fn new(pepper: &String, chunk: Range<u64>) -> Self {
+    pub fn new(pepper: &str, chunk: Range<u64>) -> Self {
         let mut buffer = Vec::with_capacity(11 + pepper.len());
-        buffer.extend("0000000000+".as_bytes());
+        buffer.extend(b"0000000000+");
         buffer.extend(pepper.as_bytes());
         Hasher { chunk, buffer }
     }
