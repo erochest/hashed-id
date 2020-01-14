@@ -1,4 +1,4 @@
-use ring::digest::{SHA256, Digest, digest};
+use ring::digest::{digest, Digest, SHA256};
 use std::iter::Iterator;
 use std::ops::Range;
 
@@ -12,10 +12,7 @@ impl Hasher {
         let mut buffer = Vec::with_capacity(11 + pepper.len());
         buffer.extend("0000000000+".as_bytes());
         buffer.extend(pepper.as_bytes());
-        Hasher {
-            chunk,
-            buffer,
-        }
+        Hasher { chunk, buffer }
     }
 }
 
@@ -36,12 +33,11 @@ impl Iterator for Hasher {
 }
 
 fn format_id(buffer: &mut Vec<u8>, n: u64, width: usize) {
-    (0..width)
-        .for_each(|i| {
-            // Adding the code point for '0' to the code digit's value
-            let code = 48 + ((n / 10u64.pow(i as u32)) % 10) as u8;
-            buffer[width - i - 1] = code;
-        });
+    (0..width).for_each(|i| {
+        // Adding the code point for '0' to the code digit's value
+        let code = 48 + ((n / 10u64.pow(i as u32)) % 10) as u8;
+        buffer[width - i - 1] = code;
+    });
 }
 
 #[cfg(test)]

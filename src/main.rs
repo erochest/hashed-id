@@ -1,9 +1,9 @@
+use data_encoding::HEXUPPER;
 use env_logger;
 use log::debug;
 use rayon::prelude::*;
 use std::ops::Range;
 use structopt::StructOpt;
-use data_encoding::HEXUPPER;
 
 mod error;
 mod hash;
@@ -17,17 +17,13 @@ fn main() -> Result<()> {
     let pepper = args.pepper;
     let max_id = 10u64.pow(args.digits);
 
-    debug!(
-        "Generating rainbow table with pepper value = '{}'",
-        &pepper
-    );
+    debug!("Generating rainbow table with pepper value = '{}'", &pepper);
 
     if args.serial {
         for (id, digest) in hash::Hasher::new(&pepper, 0..max_id) {
             let hash = HEXUPPER.encode(digest.as_ref());
             println!("{}\t{}", id, hash);
         }
-
     } else {
         let thread_count = rayon::current_num_threads() as u64;
         let chunks = partition_chunks(max_id, thread_count);
