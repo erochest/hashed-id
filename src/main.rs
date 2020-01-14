@@ -3,6 +3,7 @@ use log::debug;
 use rayon::prelude::*;
 use std::ops::Range;
 use structopt::StructOpt;
+use data_encoding::HEXUPPER;
 
 mod error;
 mod hash;
@@ -13,16 +14,17 @@ fn main() -> Result<()> {
     env_logger::init();
     let args = Cli::from_args();
 
-    let pepper = args.pepper.as_bytes();
+    let pepper = args.pepper;
     let max_id = 10u64.pow(args.digits);
 
     debug!(
         "Generating rainbow table with pepper value = '{}'",
-        args.pepper
+        &pepper
     );
 
     if args.serial {
-        for (id, hash) in hash::Hasher::new(pepper, 0..max_id) {
+        for (id, digest) in hash::Hasher::new(&pepper, 0..max_id) {
+            let hash = HEXUPPER.encode(digest.as_ref());
             println!("{}\t{}", id, hash);
         }
 
@@ -39,10 +41,14 @@ fn main() -> Result<()> {
         chunks
             .into_par_iter()
             .flat_map(|chunk| {
-                let hasher = hash::Hasher::new(pepper, chunk);
+                debug!("processing chunk {} - {}", chunk.start, chunk.end);
+                let hasher = hash::Hasher::new(&pepper, chunk);
                 hasher.par_bridge()
             })
-        .for_each(|(id, hash)| println!("{}\t{}", id, hash));
+            .for_each(|(id, digest)| {
+                let hash = HEXUPPER.encode(digest.as_ref());
+                println!("{}\t{}", id, hash)
+            });
     }
 
     Ok(())

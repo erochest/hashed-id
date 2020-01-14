@@ -1,48 +1,77 @@
-use data_encoding::HEXUPPER;
-use ring::digest::{Context, SHA256};
-use std::borrow::Cow;
-use std::fmt::Write;
+use ring::digest::{SHA256, Digest, digest};
 use std::iter::Iterator;
 use std::ops::Range;
 
-pub struct Hasher<'a> {
-    pepper: Cow<'a, [u8]>,
+pub struct Hasher {
     chunk: Range<u64>,
-    buffer: String,
+    buffer: Vec<u8>,
 }
 
-impl<'a> Hasher<'a> {
-    pub fn new(pepper: &'a [u8], chunk: Range<u64>) -> Self {
+impl Hasher {
+    pub fn new(pepper: &String, chunk: Range<u64>) -> Self {
+        let mut buffer = Vec::with_capacity(11 + pepper.len());
+        buffer.extend("0000000000+".as_bytes());
+        buffer.extend(pepper.as_bytes());
         Hasher {
-            pepper: Cow::from(pepper),
             chunk,
-            buffer: String::with_capacity(10),
+            buffer,
         }
     }
 }
 
-impl<'a> Iterator for Hasher<'a> {
-    type Item = (u64, String);
+impl Iterator for Hasher {
+    type Item = (u64, Digest);
 
-    fn next(&mut self) -> Option<(u64, String)> {
+    fn next(&mut self) -> Option<(u64, Digest)> {
         self.chunk.next().map(|id| {
-            let mut context = Context::new(&SHA256);
-
-            self.buffer.clear();
-            write!(&mut self.buffer, "{:10}", id).unwrap();
-
-            context.update(self.buffer.as_bytes());
-            context.update(b"+");
-            context.update(&self.pepper);
-
-            let digest = context.finish();
-            let hash = HEXUPPER.encode(digest.as_ref());
-
-            (id, hash)
+            format_id(&mut self.buffer, id, 10);
+            let digest = digest(&SHA256, &self.buffer);
+            (id, digest)
         })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.chunk.size_hint()
+    }
+}
+
+fn format_id(buffer: &mut Vec<u8>, n: u64, width: usize) {
+    (0..width)
+        .for_each(|i| {
+            // Adding the code point for '0' to the code digit's value
+            let code = 48 + ((n / 10u64.pow(i as u32)) % 10) as u8;
+            buffer[width - i - 1] = code;
+        });
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use spectral::prelude::*;
+
+    fn format_buffer() -> String {
+        let mut buffer = Vec::from("00000+yaddayadda".as_bytes());
+        format_id(&mut buffer, 42, 5);
+        let data = String::from_utf8(buffer).unwrap();
+        data
+    }
+
+    #[test]
+    fn test_format_id_does_not_change_buffer_size() {
+        let mut buffer = Vec::from("00000+yaddayadda".as_bytes());
+        format_id(&mut buffer, 42, 5);
+        assert_that(&buffer).has_length(16);
+    }
+
+    #[test]
+    fn test_format_id_does_not_change_suffix() {
+        let buffer = format_buffer();
+        assert_that(&buffer).ends_with("+yaddayadda");
+    }
+
+    #[test]
+    fn test_format_id_inserts_the_number() {
+        let buffer = format_buffer();
+        assert_that(&buffer).starts_with("00042+");
     }
 }
