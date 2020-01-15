@@ -19,10 +19,10 @@ fn main() -> Result<()> {
 
     if args.serial {
         for (id, digest) in hash::Hasher::new(&pepper, 0..max_id) {
-            par::output_range(id, digest);
+            print!("{}", par::format_range(id, &digest));
         }
     } else {
-        par::par_hasher(max_id, &pepper);
+        par::par_hasher(max_id, &pepper, args.chunk_count, args.output_buffer_size);
     }
 
     Ok(())
@@ -37,6 +37,14 @@ struct Cli {
     /// Run serially?
     #[structopt(short = "s", long = "serial")]
     serial: bool,
+
+    /// Number of chunks if running in parallel. 0 = number of CPUs.
+    #[structopt(short = "c", long = "chunk-count", default_value = "0")]
+    chunk_count: usize,
+
+    /// Number of lines to buffer when running in parallel.
+    #[structopt(short = "b", long = "buffer-size", default_value = "1024")]
+    output_buffer_size: usize,
 
     /// Value to use for the pepper.
     #[structopt(name = "PEPPER")]
