@@ -1,12 +1,10 @@
-use data_encoding::HEXUPPER;
 use env_logger;
 use log::debug;
-use rayon::prelude::*;
-use std::ops::Range;
 use structopt::StructOpt;
 
 mod error;
 mod hash;
+mod par;
 
 use error::Result;
 
@@ -21,30 +19,10 @@ fn main() -> Result<()> {
 
     if args.serial {
         for (id, digest) in hash::Hasher::new(&pepper, 0..max_id) {
-            let hash = HEXUPPER.encode(digest.as_ref());
-            println!("{}\t{}", id, hash);
+            par::output_range(id, digest);
         }
     } else {
-        let thread_count = rayon::current_num_threads() as u64;
-        let chunks = partition_chunks(max_id, thread_count);
-
-        debug!(
-            "Using {} chunks of size {}",
-            chunks.len(),
-            chunks.get(0).map(|r| r.end - r.start).unwrap_or_default()
-        );
-
-        chunks
-            .into_par_iter()
-            .flat_map(|chunk| {
-                debug!("processing chunk {} - {}", chunk.start, chunk.end);
-                let hasher = hash::Hasher::new(&pepper, chunk);
-                hasher.par_bridge()
-            })
-            .for_each(|(id, digest)| {
-                let hash = HEXUPPER.encode(digest.as_ref());
-                println!("{}\t{}", id, hash)
-            });
+        par::par_hasher(max_id, &pepper);
     }
 
     Ok(())
@@ -63,56 +41,4 @@ struct Cli {
     /// Value to use for the pepper.
     #[structopt(name = "PEPPER")]
     pepper: String,
-}
-
-/// Use a collection of ranges to implement the data to be processed broken into jobs to match
-/// the number of cores in a memory-friendly way.
-fn partition_chunks(max_value: u64, chunk_count: u64) -> Vec<Range<u64>> {
-    let mut chunks = Vec::with_capacity(chunk_count as usize);
-    let chunk_size = max_value / chunk_count;
-    let remainder = max_value % chunk_count;
-
-    for i in 0..chunk_count {
-        chunks.push((i * chunk_size)..((i + 1) * chunk_size));
-    }
-
-    if remainder != 0 {
-        chunks.push((chunk_count * chunk_size)..max_value);
-    }
-
-    chunks
-}
-
-#[cfg(test)]
-mod test {
-    mod partition_chunks {
-        use super::super::*;
-        use spectral::prelude::*;
-
-        #[test]
-        fn test_partitions_evenly() {
-            let chunks = partition_chunks(12, 3);
-            assert_that(&chunks).has_length(3);
-        }
-
-        #[test]
-        fn test_partitions_returns_ranges() {
-            let chunks = partition_chunks(12, 3);
-            assert_that(&chunks[0]).is_equal_to(&(0..4));
-            assert_that(&chunks[1]).is_equal_to(&(4..8));
-            assert_that(&chunks[2]).is_equal_to(&(8..12));
-        }
-
-        #[test]
-        fn test_partitions_oddly() {
-            let chunks = partition_chunks(13, 3);
-            assert_that(&chunks).has_length(4);
-        }
-
-        #[test]
-        fn test_partition_return_right_last_range() {
-            let chunks = partition_chunks(13, 3);
-            assert_that(&chunks[3]).is_equal_to(&(12..13));
-        }
-    }
 }
