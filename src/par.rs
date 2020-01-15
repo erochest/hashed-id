@@ -1,10 +1,11 @@
-use crossbeam::{channel, thread};
-use ring::digest::Digest;
-use std::ops::Range;
 use crate::hash::Hasher;
-use log::debug;
-use data_encoding::HEXUPPER;
+use crossbeam::{channel, thread};
 use crossbeam_channel::{Receiver, Sender};
+use data_encoding::HEXUPPER;
+use log::debug;
+use ring::digest::Digest;
+use std::borrow::Cow;
+use std::ops::Range;
 
 pub fn par_hasher(max_id: u64, pepper: &str, job_count: usize, output_chunk_size: usize) {
     let worker_count = num_cpus::get();
@@ -13,63 +14,103 @@ pub fn par_hasher(max_id: u64, pepper: &str, job_count: usize, output_chunk_size
     } else {
         job_count
     };
-    let chunks = partition_jobs(max_id, job_count);
+    let jobs = partition_jobs(max_id, job_count);
+    let pepper = Cow::from(String::from(pepper));
 
     debug!(
         "Using {} chunks of size {}",
-        chunks.len(),
-        chunks.get(0).map(|r| r.end - r.start).unwrap_or_default()
+        jobs.len(),
+        jobs.get(0).map(|r| r.end - r.start).unwrap_or_default()
     );
 
     let (input_tx, input_rx) = channel::unbounded();
     let (output_tx, output_rx) = channel::unbounded();
 
-    spawn_chunks(input_rx, output_tx, pepper, chunks, output_chunk_size);
-    process_output(output_rx, job_count);
+    thread::scope(|s| {
+        process_output(&s, output_rx, worker_count);
+        spawn_chunks(
+            &s,
+            input_rx,
+            output_tx,
+            &pepper,
+            worker_count,
+            output_chunk_size,
+        );
+        queue_jobs(input_tx, jobs, worker_count);
+    })
+    .unwrap();
 
     debug!("done");
 }
 
-fn spawn_chunks(rx: Receiver<Job>, tx: Sender<Output>, pepper: &str, jobs: Vec<Range<u64>>, output_chunk_size: usize) {
-    // TODO: these should read from an input channel. one thread per CPU, but possibly more chunks
-    thread::scope(|s| {
-        for job in jobs {
-            let tx = tx.clone();
-            s.spawn(move |_| {
+fn process_output(s: &thread::Scope, rx: Receiver<Output>, worker_count: usize) {
+    s.spawn(move |_| {
+        let mut counter = worker_count as u64;
+        while counter > 0 {
+            if let Some(message) = rx.recv().ok() {
+                match message {
+                    Output::BulkOutput(output) => {
+                        print!("{}", output);
+                    }
+                    Output::Done => {
+                        counter -= 1;
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn spawn_chunks<'a>(
+    s: &thread::Scope<'a>,
+    rx: Receiver<Job>,
+    tx: Sender<Output>,
+    pepper: &Cow<'a, str>,
+    worker_count: usize,
+    output_chunk_size: usize,
+) {
+    for n in 0..worker_count {
+        let rx = rx.clone();
+        let tx = tx.clone();
+        let pepper = pepper.clone();
+
+        debug!("spawning worker {}", n);
+        s.spawn(move |_| {
+            let mut buffer = Vec::with_capacity(output_chunk_size);
+
+            while let Ok(Job::JobRange(job)) = rx.recv() {
                 let start = job.start;
                 let end = job.end;
-                let hasher = Hasher::new(&pepper, job);
-                let mut buffer = Vec::with_capacity(output_chunk_size);
+                let hasher = Hasher::new(pepper.as_ref(), job);
+                buffer.clear();
 
-                debug!("processing chunk {} - {}", start, end);
+                debug!("processing chunk {} - {} on worker {}", start, end, n);
                 for output in hasher {
                     buffer.push(output);
-                    if buffer.len() >= 1024 {
-                        tx.send(Output::BulkOutput(buffer_to_output(&buffer))).unwrap();
+                    if buffer.len() >= output_chunk_size {
+                        tx.send(Output::BulkOutput(buffer_to_output(&buffer)))
+                            .unwrap();
                         buffer.clear();
                     }
                 }
-                tx.send(Output::BulkOutput(buffer_to_output(&buffer))).unwrap();
-                tx.send(Output::Done).unwrap();
-                debug!("done with chunk {} - {}", start, end);
-            });
-        }
-    }).unwrap();
+                tx.send(Output::BulkOutput(buffer_to_output(&buffer)))
+                    .unwrap();
+                debug!("done with chunk {} - {} on worker {}", start, end, n);
+            }
+
+            tx.send(Output::Done).unwrap();
+            debug!("worker {} done. exiting.", n);
+        });
+    }
 }
 
-fn process_output(rx: Receiver<Output>, chunk_count: usize) {
-    let mut counter = chunk_count as u64;
-    while counter > 0 {
-        if let Some(message) = rx.recv().ok() {
-            match message {
-                Output::BulkOutput(output) => {
-                    print!("{}", output);
-                },
-                Output::Done => {
-                    counter -= 1;
-                },
-            }
-        }
+fn queue_jobs(input_tx: Sender<Job>, jobs: Vec<Range<u64>>, worker_count: usize) {
+    debug!("queuing {} jobs", jobs.len());
+    for job in jobs {
+        input_tx.send(Job::JobRange(job)).unwrap();
+    }
+    for _ in 0..worker_count {
+        input_tx.send(Job::Done).unwrap();
     }
 }
 
